@@ -1,3 +1,4 @@
-streamlit==1.57.0
+streamlit
 pyowm==3.3.0
-matplotlib==3.10.9
+matplotlib
+setuptools

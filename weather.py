@@ -1,12 +1,12 @@
 from datetime import datetime, timezone
-import pyowm
+import requests
 import streamlit as st
 from matplotlib import dates as mdates
 from matplotlib import pyplot as plt
 
 # Streamlit Page Config
 st.set_page_config(
-    page_title="AeroPulse Weather Intelligence - Universal Global & India",
+    page_title="AeroPulse Weather Intelligence",
     page_icon="🌤️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -140,7 +140,6 @@ st.markdown("""
         color: #7F1D1D;
     }
 
-    /* Single Search Button Style */
     .stButton button {
         border-radius: 12px !important;
         background-color: #0284C7 !important;
@@ -160,8 +159,6 @@ st.markdown("""
 # Fetch secret API Key
 api_key = st.secrets["API_KEY"]
 sign = u"\N{DEGREE SIGN}"
-owm = pyowm.OWM(api_key)
-mgr = owm.weather_manager()
 
 # --- HEADER BRANDING ---
 st.markdown("""
@@ -217,45 +214,62 @@ with opt_col2:
     graph = st.selectbox("Forecast Graph Style", ('Bar Graph', 'Line Graph'), index=0)
 
 degree = 'C' if units == 'celsius' else 'F'
+unit_param = 'metric' if units == 'celsius' else 'imperial'
 
-# --- UNIVERSAL LOCATION SEARCH RESOLVER ---
-def resolve_universal_location(query, temp_unit):
+# --- OPENWEATHER REST API RESOLVER (NO PKG_RESOURCES DEPENDENCY) ---
+def fetch_weather_rest(query, unit_setting):
     query = query.strip()
     if not query:
         raise ValueError("Please enter a location name or PIN code.")
 
-    attempts = [
-        query,
-        query.title()
-    ]
-    if "," not in query:
-        attempts.extend([
-            f"{query},IN",
-            f"{query.title()},IN"
-        ])
+    r_curr = None
+    r_fc = None
 
-    obs = None
-    forecaster = None
+    # Step 1: Try ZIP Code Lookup first if the query is a number
+    if query.isdigit():
+        # Specifically try Indian 6-digit PIN codes first
+        if len(query) == 6:
+            try:
+                curr_res = requests.get(f"https://api.openweathermap.org/data/2.5/weather?zip={query},IN&appid={api_key}&units={unit_setting}", timeout=8).json()
+                if curr_res.get("cod") == 200:
+                    fc_res = requests.get(f"https://api.openweathermap.org/data/2.5/forecast?zip={query},IN&appid={api_key}&units={unit_setting}", timeout=8).json()
+                    if fc_res.get("cod") == "200":
+                        r_curr = curr_res
+                        r_fc = fc_res
+            except Exception:
+                pass
+        
+        # Fallback to generic ZIP lookup
+        if not r_curr or not r_fc:
+            try:
+                curr_res = requests.get(f"https://api.openweathermap.org/data/2.5/weather?zip={query}&appid={api_key}&units={unit_setting}", timeout=8).json()
+                if curr_res.get("cod") == 200:
+                    fc_res = requests.get(f"https://api.openweathermap.org/data/2.5/forecast?zip={query}&appid={api_key}&units={unit_setting}", timeout=8).json()
+                    if fc_res.get("cod") == "200":
+                        r_curr = curr_res
+                        r_fc = fc_res
+            except Exception:
+                pass
 
-    # Step 1: Try place lookups
-    for q in attempts:
-        try:
-            obs = mgr.weather_at_place(q)
-            forecaster = mgr.forecast_at_place(q, '3h')
-            if obs and forecaster:
-                break
-        except Exception:
-            continue
+    # Step 2: Try Place Searches if ZIP lookup failed or it's not a digit
+    if not r_curr or not r_fc:
+        attempts = [query, query.title()]
+        if "," not in query:
+            attempts.extend([f"{query},IN", f"{query.title()},IN"])
 
-    # Step 2: Try 6-digit Indian PIN code lookup if needed
-    if (not obs or not forecaster) and query.isdigit() and len(query) == 6:
-        try:
-            obs = mgr.weather_at_zip_code(query, 'IN')
-            forecaster = mgr.forecast_at_place(f"{query},IN", '3h')
-        except Exception:
-            pass
+        for q in attempts:
+            try:
+                curr_res = requests.get(f"https://api.openweathermap.org/data/2.5/weather?q={q}&appid={api_key}&units={unit_setting}", timeout=8).json()
+                if curr_res.get("cod") == 200:
+                    fc_res = requests.get(f"https://api.openweathermap.org/data/2.5/forecast?q={q}&appid={api_key}&units={unit_setting}", timeout=8).json()
+                    if fc_res.get("cod") == "200":
+                        r_curr = curr_res
+                        r_fc = fc_res
+                        break
+            except Exception:
+                continue
 
-    if not obs or not forecaster:
+    if not r_curr or not r_fc:
         raise ValueError(
             f"Could not find weather data for '{query}'.\n\n"
             "**Search Tips:**\n"
@@ -264,64 +278,69 @@ def resolve_universal_location(query, temp_unit):
             "• **Global Cities:** Add country code e.g. `London, GB`, `Tokyo, JP`, `Paris, FR`.\n"
         )
 
-    # Process 5-day temperature forecast
-    forecast = forecaster.forecast
+    # Process 5-day forecast temperature
+    forecast_list = r_fc.get("list", [])
     days_list = []
     dates_list = []
     temp_min = []
     temp_max = []
-    for w in forecast:
-        day = datetime.fromtimestamp(w.reference_time(), tz=timezone.utc)
+    humidity_days = []
+    h_dates = []
+    humidity_max = []
+
+    for item in forecast_list:
+        dt_timestamp = item.get("dt")
+        day = datetime.fromtimestamp(dt_timestamp, tz=timezone.utc)
         date = day.date()
+
+        # Temp min/max
         if date not in dates_list:
             dates_list.append(date)
             temp_min.append(None)
             temp_max.append(None)
             days_list.append(date)
-        
-        t = w.temperature(unit=temp_unit)['temp']
-        if temp_min[-1] is None or t < temp_min[-1]:
-            temp_min[-1] = t
-        if temp_max[-1] is None or t > temp_max[-1]:
-            temp_max[-1] = t
 
-    # Process 5-day humidity forecast
-    humidity_days = []
-    h_dates = []
-    humidity_max = []
-    for w in forecast:
-        day = datetime.fromtimestamp(w.reference_time(), tz=timezone.utc)
-        date = day.date()
+        t_val = item.get("main", {}).get("temp")
+        if temp_min[-1] is None or t_val < temp_min[-1]:
+            temp_min[-1] = t_val
+        if temp_max[-1] is None or t_val > temp_max[-1]:
+            temp_max[-1] = t_val
+
+        # Humidity max
         if date not in h_dates:
             h_dates.append(date)
             humidity_max.append(None)
             humidity_days.append(date)
 
-        h = w.humidity
-        if humidity_max[-1] is None or h > humidity_max[-1]:
-            humidity_max[-1] = h
+        h_val = item.get("main", {}).get("humidity")
+        if humidity_max[-1] is None or h_val > humidity_max[-1]:
+            humidity_max[-1] = h_val
 
-    return obs, forecaster, days_list, temp_min, temp_max, humidity_days, humidity_max
+    return r_curr, r_fc, days_list, temp_min, temp_max, humidity_days, humidity_max
 
 # --- MAIN DASHBOARD DISPLAY ---
 if not target_location:
     st.info("💡 Enter a city, village, district, or PIN code above and click Search Location.")
 else:
     try:
-        obs, forecaster, days, temp_min, temp_max, h_days, humidity_max = resolve_universal_location(target_location, units)
-        weather = obs.weather
-        icon = weather.weather_icon_url(size='4x')
+        r_curr, r_fc, days, temp_min, temp_max, h_days, humidity_max = fetch_weather_rest(target_location, unit_param)
 
-        temp = weather.temperature(unit=units)['temp']
-        temp_felt = weather.temperature(unit=units)['feels_like']
-        cloud = weather.clouds
-        wind = weather.wind()['speed']
-        humidity = weather.humidity
-        pressure = weather.pressure['press']
-        visibility = weather.visibility(unit='kilometers')
+        weather_icon_code = r_curr["weather"][0]["icon"]
+        icon = f"https://openweathermap.org/img/wn/{weather_icon_code}@4x.png"
+        status_desc = r_curr["weather"][0]["description"].title()
+
+        temp = r_curr["main"]["temp"]
+        temp_felt = r_curr["main"]["feels_like"]
+        cloud = r_curr["clouds"]["all"]
+        wind = r_curr["wind"]["speed"]
+        humidity = r_curr["main"]["humidity"]
+        pressure = r_curr["main"]["pressure"]
+        visibility = round(r_curr.get("visibility", 10000) / 1000, 1)
+
+        city_display_name = r_curr.get("name", target_location.title())
 
         st.markdown("<hr style='margin: 20px 0; border: none; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
-        st.markdown(f"### 📍 Weather Intelligence for **{target_location.title()}**")
+        st.markdown(f"### 📍 Weather Intelligence for **{city_display_name}**")
 
         # --- SECTION 1: HERO OVERVIEW & TELEMETRY CARDS ---
         hero_col, telem_col = st.columns([1.2, 2.8])
@@ -332,7 +351,7 @@ else:
                 <img src="{icon}" width="100" style="margin-bottom: -10px;">
                 <div class="hero-temp">{round(temp)}{sign}{degree}</div>
                 <div class="hero-feels">Feels like {round(temp_felt)}{sign}{degree}</div>
-                <div class="status-badge">{weather.detailed_status.title()}</div>
+                <div class="status-badge">{status_desc}</div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -453,8 +472,11 @@ else:
             st.markdown("### 🌅 Astronomy & Alerts")
             
             # Sunrise & Sunset
-            sunrise_unix = datetime.fromtimestamp(int(weather.sunrise_time()), tz=timezone.utc)
-            sunset_unix = datetime.fromtimestamp(int(weather.sunset_time()), tz=timezone.utc)
+            sunrise_ts = r_curr.get("sys", {}).get("sunrise", 0)
+            sunset_ts = r_curr.get("sys", {}).get("sunset", 0)
+
+            sunrise_unix = datetime.fromtimestamp(sunrise_ts, tz=timezone.utc)
+            sunset_unix = datetime.fromtimestamp(sunset_ts, tz=timezone.utc)
             daylight_duration = sunset_unix - sunrise_unix
             hours, remainder = divmod(daylight_duration.seconds, 3600)
             minutes, _ = divmod(remainder, 60)
@@ -472,15 +494,22 @@ else:
 
             st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
-            # Weather Hazards
+            # Weather Hazards Scan
             active_alerts = []
-            if forecaster.will_have_clouds(): active_alerts.append("Cloud Coverage ⛅")
-            if forecaster.will_have_rain(): active_alerts.append("Rain Expected 🌧️")
-            if forecaster.will_have_snow(): active_alerts.append("Snow Hazard ❄️")
-            if forecaster.will_have_storm(): active_alerts.append("Storm Alert ⛈️")
-            if forecaster.will_have_fog(): active_alerts.append("Fog / Reduced Visibility 🌫️")
-            if forecaster.will_have_hurricane(): active_alerts.append("Hurricane Warning 🌀")
-            if forecaster.will_have_tornado(): active_alerts.append("Tornado Warning 🌪️")
+            fc_list = r_fc.get("list", [])
+            for f_item in fc_list:
+                for w_obj in f_item.get("weather", []):
+                    w_main = w_obj.get("main", "").lower()
+                    if "rain" in w_main and "Rain Expected 🌧️" not in active_alerts:
+                        active_alerts.append("Rain Expected 🌧️")
+                    if "snow" in w_main and "Snow Hazard ❄️" not in active_alerts:
+                        active_alerts.append("Snow Hazard ❄️")
+                    if "thunderstorm" in w_main and "Storm Alert ⛈️" not in active_alerts:
+                        active_alerts.append("Storm Alert ⛈️")
+                    if ("fog" in w_main or "mist" in w_main or "haze" in w_main) and "Fog / Reduced Visibility 🌫️" not in active_alerts:
+                        active_alerts.append("Fog / Reduced Visibility 🌫️")
+                    if "clouds" in w_main and "Cloud Coverage ⛅" not in active_alerts:
+                        active_alerts.append("Cloud Coverage ⛅")
 
             if active_alerts:
                 alert_list_html = "".join([f"<li><b>{alt}</b></li>" for alt in active_alerts])
