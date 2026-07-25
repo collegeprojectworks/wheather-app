@@ -1,0 +1,125 @@
+============================================================
+          WEATHER FORECASTER – SETUP AND RUN GUIDE
+============================================================
+
+This file contains everything you need to install dependencies,
+configure the API key, and launch the Weather Forecaster app.
+
+
+------------------------------------------------------------
+STEP 1 – PREREQUISITES
+------------------------------------------------------------
+Make sure you have Python 3.9 or later installed.
+Check by running:
+    python --version
+
+If Python is not installed, download it from:
+    https://www.python.org/downloads/
+
+
+------------------------------------------------------------
+STEP 2 – GET AN OPENWEATHERMAP API KEY (FREE)
+------------------------------------------------------------
+1. Open your browser and go to:
+       https://openweathermap.org/api
+2. Click "Sign Up" and create a free account.
+   (No credit card required.)
+3. After signing in, navigate to:
+       https://home.openweathermap.org/api_keys
+4. Copy your API Key (it looks like a 32-character hex string).
+
+
+------------------------------------------------------------
+STEP 3 – INSTALL DEPENDENCIES
+------------------------------------------------------------
+Open a terminal / Command Prompt in this folder (the folder
+that contains weather.py and requirements.txt) and run:
+
+    pip install -r requirements.txt
+
+This installs exactly three packages:
+    • streamlit==1.57.0   – web UI framework
+    • pyowm==3.3.0        – OpenWeatherMap Python wrapper
+    • matplotlib==3.10.9  – chart / graph rendering
+
+
+------------------------------------------------------------
+STEP 4 – CONFIGURE THE API KEY
+------------------------------------------------------------
+1. Open the file ".streamlit/secrets.toml" in this folder.
+2. Replace the placeholder text with your actual API key:
+
+       API_KEY = "your_actual_key_here"
+
+3. Save the file.
+
+Example:
+       API_KEY = "93239a5164943744369d6dfbacc0b0d5"
+
+
+------------------------------------------------------------
+STEP 5 – RUN THE APPLICATION
+------------------------------------------------------------
+In the same terminal / Command Prompt, run:
+
+    streamlit run weather.py
+
+A new tab will open automatically in your default browser at:
+       http://localhost:8501
+
+
+------------------------------------------------------------
+HOW TO USE THE APP
+------------------------------------------------------------
+1. Type a city name in the text field (e.g. London, Mumbai).
+   For best results add the 2-letter country code:
+       Tokyo, JP
+       New York, US
+       Paris, FR
+
+2. Choose a Temperature Unit:      Celsius  or  Fahrenheit
+
+3. Choose a Graph Type:             Bar Graph  or  Line Graph
+
+4. Click the "Submit" button.
+
+The app will display:
+   • Current weather (temperature, clouds, wind, humidity,
+     pressure, visibility, weather icon)
+   • A 5-day temperature trend chart (Bar or Line)
+   • Upcoming weather alerts
+   • Sunrise and Sunset times
+   • A 5-day humidity bar chart
+
+
+------------------------------------------------------------
+TROUBLESHOOTING
+------------------------------------------------------------
+"Location Not Found!"
+  → Make sure you spelled the city name correctly.
+  → Add a comma and 2-letter country code, e.g. "London, GB".
+
+"Invalid API Key"
+  → Double-check the key in .streamlit/secrets.toml.
+  → Wait 5–10 minutes if the key is brand new (new keys can
+    take a short while to activate on OpenWeatherMap's side).
+
+Port 8501 already in use
+  → Run:  streamlit run weather.py --server.port 8502
+
+Deprecation / warning messages in the console
+  → Harmless. They do not affect functionality.
+
+
+------------------------------------------------------------
+PROJECT FILES
+------------------------------------------------------------
+weather.py                  Main application (all code)
+requirements.txt            Python dependency list
+.streamlit/secrets.toml     API key (add your own key here)
+PROJECT_DOCUMENTATION.md    Full technical documentation
+SETUP_AND_RUN.txt           This file
+
+============================================================
+                        END OF GUIDE
+============================================================
